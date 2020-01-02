@@ -11,3 +11,10 @@ I generally build in eclipse from the WUDSN ide.  WUDSN can be found here: https
 
 ---
 
+2020-01-02.   This is defintely broken.   The VBI is not maintaining the control variables properly.   Wrong flag testing, and wrong method of decrementing for the length.
+
+May be fixed now, but have neot uploaded the reassembled XEX.
+
+Also, these code changes will have moved the control data, so the PEEK() for BASIC to check VBI status will be different.
+
+---
