@@ -1,0 +1,1460 @@
+mads 2.0.8
+Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/CheapTalkDriver.asm
+     1 				; ==========================================================================
+     2 				; Minimal VBI driver for the SPO256-AL2 speech processor.
+     3 				; Interface is via the PIA ports.
+     4 				; Assuming all lines wired according to common ANTIC and ANALOG 
+     5 				; magazine documentation.
+     6 				; Bit 7 = status (READ: 1 = Speech busy)
+     7 				; Bit 6 = command (WRITE: 1 = Accept data.  0 = this is the data)
+     8 				; Bit 5 to 0 = data (WRITE: phoneme value 0 to 63)
+     9 				; January 2020 by Ken Jennings
+    10 				; for the Atari 8-bit computers
+    11 				; Assuming MADS Assembler.
+    12 				; --------------------------------------------------------------------------
+    13
+    14 				; ==========================================================================
+    15 				; The assembly code for the Atari depends on my MADS include library here: 
+    16 				; https://github.com/kenjennings/Atari-Mads-Includes
+    17 				;
+    18 				; The MADS 6502 assembler is here: http://http://mads.atari8.info
+    19 				;
+    20 				; I generally build in eclipse from the WUDSN ide.  
+    21 				; WUDSN can be found here: https://www.wudsn.com/index.php
+    22 				; --------------------------------------------------------------------------
+    23
+    24 				; ==========================================================================
+    25 				; Atari System Includes (MADS assembler)
+    26 				;	icl "ANTIC.asm" ; Display List registers
+    27 				;	icl "GTIA.asm"  ; Color Registers.
+    28 				;	icl "POKEY.asm" ;
+    29 					icl "PIA.asm"   ; Controllers
+Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/PIA.asm
+     1 				;=================================================
+     2 				; PIA register list
+     3 				; for atasm
+     4 				; Ken Jennings
+     5 				;=================================================
+     6 				; Hardware Registers
+     7 				;
+     8 = D300			PORTA = $D300 ; Joystick ports 1 and 2, STICK0 and STICK1
+     9 = D301			PORTB = $D301 ; Joystick ports 3 and 4, STICK2 and STICK3
+    10 = D302			PACTL = $D302 ; Port A Control
+    11 = D303			PBCTL = $D303 ; Port B Control
+    12 				;=================================================
+    13 				; Shadow Registers for Hardware Registers
+    14 				;
+    15 = 0278			STICK0 = $0278
+    16 = 0279			STICK1 = $0279
+    17 = 027A			STICK2 = $027A
+    18 = 027B			STICK3 = $027B
+    19 				;
+    20 = 027C			PTRIG0 = $027C
+    21 = 027D			PTRIG1 = $027D
+    22 = 027E			PTRIG2 = $027E
+    23 = 027F			PTRIG3 = $027F
+    24 = 0280			PTRIG4 = $0280
+    25 = 0281			PTRIG5 = $0281
+    26 = 0282			PTRIG6 = $0282
+    27 = 0283			PTRIG7 = $0283
+    28 				;=================================================
+    29 				; Important Bit Positions
+    30 				;
+    31 				; MASK_JACK is about referencing the actual hardware registers.
+    32 				; You can do this if you want to, however the OS already separates 
+    33 				; the joysticks into individual OS register value (STICKx), so
+    34 				; there's not a lot of reason to read the joystick 
+    35 				; hardware directly.
+    36 = 000F			MASK_JACK_1 = %00001111 ; Actually the anti-mask.  Keeps bits from first controller in pair.
+    37 = 00F0			MASK_JACK_2 = %11110000 ; The inverse of mask.  Keeps bits from second controller in pair.
+    38 = 000F			MASK_JACK_3 = %00001111 ; Actually the anti-mask.  Keeps bits from first controller in pair.
+    39 = 00F0			MASK_JACK_4 = %11110000 ; The inverse of mask.  Keeps bits from second controller in pair.
+    40 				;
+    41 				; Note that 0 bit is pressed.  1 bit is not pressed.
+    42 				; Reading "JACK" registers gives two joystick values.  
+    43 				; The Joystick's bits in the high nybble should be right shifted 
+    44 				; into the low nybble for testing.
+    45 				; Or just use the STICKx shadow register as that is its purpose.  
+    46 				; Bits for STICKx shadow regs below:
+    47 = 00F7			MASK_STICK_RIGHT = %11110111
+    48 = 00FB			MASK_STICK_LEFT =  %11111011
+    49 = 00FD			MASK_SITCK_UP =    %11111101
+    50 = 00FE			MASK_STICK_DOWN =  %11111110
+    51 				;
+    52 = 0008			STICK_RIGHT = %00001000 ; AND with STICKx. If 0, then pressed. If 1, then not pressed.
+    53 = 0004			STICK_LEFT =  %00000100
+    54 = 0002			SITCK_UP =    %00000010
+    55 = 0001			STICK_DOWN =  %00000001
+    56 				;
+    57 				; PACTL and PBCTL
+    58 = 007F			MASK_PORT_SERIAL_IRQ =   %01111111 ; (Read)
+    59 = 00F7			MASK_MOTOR_CONTROL =     %11110111 ; PACTL Peripheral motor control (cassette)
+    60 = 00F7			MASK_COMMAND_IDENT =     %11110111 ; PBCTL Peripheral command identification
+    61 = 00FB			MASK_PORT_ADDRESSING =   %11111011 ; PACTL 0 = Port direction control. 1 = Read port.
+    62 = 00FE			MASK_SERIAL_IRQ_ENABLE = %11111110
+    63 				;
+    64 = 0080			PORT_SERIAL_IRQ =   %10000000 ; (Read)
+    65 = 0008			MOTOR_CONTROL =     %00001000 ; PACTL
+    66 = 0008			COMMAND_IDENT =     %00001000 ; PBCTL
+    67 = 0004			PORT_ADDRESSING =   %00000100
+    68 = 0001			SERIAL_IRQ_ENABLE = %00000001
+    69 				;
+    70 				; PBCTL for the XL
+    71 = 00FE			MASK_SELECT_OS_ROM =      %11111110 ; Turn OS ROM on and off
+    72 = 00FD			MASK_SELECT_BASIC_ROM =   %11111101 ; Turn BASIC ROM on and off
+    73 = 00FB			MASK_LED_1_KEYBOARD =     %11111011 ; 1200XL LED 1, enable/disable keyboard
+    74 = 00F7			MASK_LED_2_INTL_CHARSET = %11110111 ; 1200XL LED 2, enable international character set
+    75 = 007F			MASK_SELF_TEST_ROM =      %01111111 ; Expose Self Test at $5000
+    76 				;
+    77 = 0001			SELECT_OS_ROM =      %00000001
+    78 = 0002			SELECT_BASIC_ROM =   %00000010
+    79 = 0004			LED_1_KEYBOARD =     %00000100
+    80 = 0008			LED_2_INTL_CHARSET = %00001000
+    81 = 0080			SELF_TEST_ROM =      %10000000
+    82
+    30 					icl "OS.asm"    ;
+Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/OS.asm
+     1 				;=================================================
+     2 				; OS memory and vectors
+     3 				; For Mads assembler
+     4 				; Ken Jennings
+     5 				;=================================================
+     6
+     7 				;=================================================
+     8 				; Use the ANTIC/GTIA/POKEY/PIA files for shadow
+     9 				; register declarations.
+    10 				;=================================================
+    11
+    12 				;=================================================
+    13 				; Most of the first half of Page Zero is claimed
+    14 				; by the OS.  The second half is for the cartridge
+    15 				; ROM, with part used for the Floating point 
+    16 				; package.
+    17 				;
+    18 				; If a cartridge is not inserted then the Page Zero
+    19 				; space for the cartridge is available for any 
+    20 				; machine language program.   
+    21 				;
+    22 				; Likewise, if the floating-point package will not 
+    23 				; be used then the FP registers and working area 
+    24 				; can be treated as free for use by a machine 
+    25 				; language program.
+    26 				;=================================================
+    27
+    28 				;=================================================
+    29 				; OS and Cartridge Page 0
+    30 				;=================================================
+    31 = 0000			LINZBS = $00 ; word
+    32
+    33 = 0002			CASINI = $02 ; word, Cassette initialization vector (and trap RESET. See $09).
+    34 = 0004			RAMLO =  $04 ; word, power up memory test.  Disk boot address.
+    35
+    36 = 0006			CTAFLG = $06 ; nonzero value means Left/A cartridge present
+    37 = 0007			CTBFLG = $07 ; nonzero value means Right/B  cartridge present
+    38
+    39 = 0008			WARMST = $08 ; Warmstart flag. 0 = powerup in progress. $FF normal reset occurred.
+    40 = 0009			BOOT =   $09 ; Boot status. 0 = no boot.  
+    41 					; 1 = disk boot OK.  do reset via DOSVEC
+    42 					; 2 = cassette boot OK. do reset via CASINI
+    43 					; 3 = both successful. (trap reset via CASINI).
+    44
+    45 = 000A			DOSVEC = $0A ; word. Entry vector for DOS (actually to start DUP.SYS).
+    46 = 000C			DOSINI = $0C ; word. Init address for DOS or Cassette RUN address. (also trap RESET with this).
+    47
+    48 = 000E			APPMHI = $0E ; word. Application high memory in use.
+    49
+    50 				; POKMSK = $10 in POKEY.asm
+    51
+    52 = 0011			BRKKEY = $11 ; 0 = Break pressed.  
+    53
+    54 				; Real Time Clock incremented during the vertical blank.
+    55 				; This is three addresses $12, $13, and $14.
+    56 				; The value of $14 is incremented  every vertical blank.
+    57 				; When the value of $14 reaches $FF on the next increment it rolls 
+    58 				; over to $00 and then the value of $13 increments.
+    59 				; $14 rollover/$13 increment occurs approximately every 4.27 seconds.
+    60 				; Likewise, when the value if $13 reaches $FF and it rolls 
+    61 				; over to $00,then the value of $12 increments.
+    62 				; $13 rollover/$12 increment occurs approximately every 18.2 minutes.
+    63 				; Jiffy count / 59.92334 for seconds.
+    64 = 0012			RTCLOK =   $12 ; and $13, and $14.  
+    65 = 0014			RTCLOK60 = $14 ; incremented every jiffy/frame.
+    66
+    67 = 0015			BUFADR = $15 ; word.  temporary address of disk buffer
+    68 = 0017			ICCOMT = $17 ; CIO command.
+    69 = 0018			DSKFMS = $18 ; word. File Management System vector.
+    70 = 001A			DSKUTL = $1A ; word. Disk Utilities pointer.
+    71
+    72 = 001C			PTIMOT = $1C ; printer timeout.  approx 64 second per 60 values.
+    73 = 001D			PBPNT =  $1D ; Printer buffer pointer.  index into buffer.
+    74 = 001E			PBUFSZ = $1E ; Printer buffer size.
+    75 = 001F			PTEMP =  $1F ; Temporary printer value used by print handler.
+    76
+    77 				; Zero Page copy of CIO's IOCB
+    78 = 0020			ICHIDZ = $20 ; Handler Index
+    79 = 0021			ICDNOZ = $21 ; Device or drive number
+    80 = 0022			ICCOMZ = $22 ; Command
+    81 = 0023			ICSTAZ = $23 ; IOCB status result
+    82 = 0024			ICBALZ = $24 ; Buffer address (lo byte)
+    83 = 0025			ICBAHZ = $25 ; Buffer address (hi byte)
+    84 = 0026			ICPTLZ = $26 ; Put Byte rouotine address (lo byte)
+    85 = 0027			ICPTHZ = $27 ; Put Byte rouotine address (hi byte)
+    86 = 0028			ICBLLZ = $28 ; Buffer length (lo byte)
+    87 = 0029			ICBLHZ = $29 ; Buffer length (hi byte)
+    88 = 002A			ICAX1Z = $2A ; Aux byte 1 (open parameters)
+    89 = 002B			ICAX2Z = $2B ; Aux byte 2
+    90 = 002C			ICAX3Z = $2C ; Aux byte 3 (BASIC Note/Point)
+    91 = 002D			ICAX4Z = $2D ; Aux byte 4 (BASIC Note/Point)
+    92 = 002E			ICAX5Z = $2E ; Aux byte 5
+    93 = 002F			ICAX6Z = $2F ; Aux byte 6
+    94
+    95 = 0030			STATUS = $30 ; SIO status
+    96 = 0031			CHKSUM = $31 ; SIO data frame checksum.
+    97
+    98 = 0032			BUFRLO = $32 ; SIO and DCB address of data to send or receive (lo byte)
+    99 = 0033			BUFRHI = $33 ; SIO and DCB address of data to send or receive (hi byte)
+   100 = 0034			BFENLO = $34 ; SIO and DCB address after BUFRLO/BUFRHI  (lo byte)
+   101 = 0035			BFENHI = $35 ; SIO and DCB address after BUFRLO/BUFRHI  (hi byte)
+   102
+   103 = 0036			CRETRY = $36 ; Command frame retries.  Usually $0D.
+   104 = 0037			DRETRY = $37 ; Device retries.  Usually $01.
+   105
+   106 = 0038			BUFRFL = $38 ; Flag buffer full. $FF is full.
+   107 = 0039			RECVDN = $39 ; Flag receive done. $FF is done.
+   108 = 003A			XMTDON = $3A ; Flag transmit done. $FF is done.
+   109 = 003B			CHKSNT = $3B ; Flag checksum sent. $FF is sent. $00 is not sent.
+   110 = 003C			NOCKSM = $3C ; Flag $00 = checksum follows data.  not zero = no checksum.
+   111
+   112 = 003D			BPTR =   $3D ; Index to data in cassette buffer. 
+   113 = 003E			FTYPE =  $3E ; Gap between cassette blocks. $01 to $7F = normal. $80 to $00 = short gaps.
+   114 = 003F			FEOF =   $3F ; EOF for cassette. $00 = No EOF.  !$00 = EOF detected.
+   115 = 0040			FREQ =   $40 ; Number of beeps for cassette start.  1 = Play.  2 = Record.
+   116 = 0041			SOUNDR = $41 ; Play I/O sounds to speaker. 0 = silence.  !0 = I/O sound.
+   117
+   118 				; Critical I/O flag.  
+   119 				; Set to stop some automated timers and updates.
+   120 				;  $00 = Normal behavior. 
+   121 				; !$00 = Critical I/O mode.
+   122 				; When CRITIC is set (non-zero) the following activities change:
+   123 				; Stage 2/Deferred Vertical Blank Interrupt STOPS.
+   124 				; (Stage 1/Immediate Vertical Blank Interrupt continues.)
+   125 				; Software Timers 2, 3, 4, and 5 stop.
+   126 				; Keyboard repeat disabled.
+   127 = 0042			CRITIC = $42 ;  
+   128
+   129 = 0043			FMZSPG = $43 ; 7 bytes up to $49. Disk FMS page 0 temporary registers (below)
+   130 = 0043			ZBUFP =  $43 ; word.  Pointer to filename.
+   131 = 0045			ZDRVA =  $45 ; word. Drive pointer/sector temporary value.
+   132 = 0047			ZSBA =   $47 ; word. temporary sector pointer.
+   133 = 0049			ERRNO =  $49 ; Disk I/O error.  FMS initializes to $9F.
+   134
+   135 = 004A			CKEY =   $4A ; Cassette Cold Start to boot cassette.  Set by holding START key.
+   136 = 004B			CASSBT = $4B ; Flag Cassette Boot. 0 = cassette boot unsuccessful.
+   137
+   138 = 004C			DSTAT =  $4C ; status from S: handler. 
+   139
+   140 				; Atari's "Attract" mode.
+   141 				; After no keyboard input for several minutes the Atari OS cycles the 
+   142 				; colors to prevent CRT image burn-in.  Reset this to 0 periodically
+   143 				; to prevent the OS engaging the attract mode.
+   144 = 004D			ATRACT = $4D
+   145
+   146 				; Dark attract mask. Set to $FE/254 when attract mode is not active.
+   147 				; Set to $F6/246 when attract mode is active.  This masks the 
+   148 				; color lunminance bits to make screen colors stay below 50% 
+   149 				; brighness. 
+   150 = 004E			DRKMSK = $4E
+   151
+   152 				; Color shift mask When attract mode is on the color registers are
+   153 				; exclusive-OR's with the values in $4e and $4f  during the OS's 
+   154 				; stage two vertical blank interrupt.  (see RTCLOK)
+   155 				; When set to zero and value of DRKMSK is $f6/246, the luminance 
+   156 				; is reduced 50%. COLRSH contains the value of RTCLOK+1 which is 
+   157 				; incremented approximately each 4.27 seconds causing the colors
+   158 				; to cycle at that period of time.       
+   159 = 004F			COLRSH = $4F
+   160
+   161 = 0050			TEMP =   $50 ; S: temporary value. (write character to screen)
+   162 = 0051			HOLD1 =  $51 ; S: temporary value. (lines for Display List)
+   163
+   164 = 0052			LMARGN = $52 ; E: left margin of GR.0 text mode and text windows
+   165 = 0053			RMARGN = $53 ; E: right margin of GR.0 text mode and text windows
+   166 = 0054			ROWCRS = $54 ; S: current cursor row (Y) 
+   167 = 0055			COLCRS = $55 ; word.  S: current cursor column (X)
+   168
+   169 = 0057			DINDEX = $57 ; S: current screen text/graphics mode
+   170 = 0058			SAVMSC = $58 ; word. Address of first byte of screen memory.
+   171
+   172 = 005A			OLDROW = $5A ; Previous cursor row from $54. Used for Drawto and Fill
+   173 = 005B			OLDCOL = $5B ; word. Previous cursor column from $55/$56. Used for Drawto and Fill
+   174 = 005D			OLDCHR = $5D ; Prior value of character at cursor
+   175 = 005E			OLDADR = $5E ; word. memory location of cursor.
+   176
+   177 = 0060			NEWROW = $60 ; Destination row for Drawto and Fill.
+   178 = 0062			NEWCOL = $62 ; word. Destination column for Drawto and Fill.
+   179 = 0064			LOGCOL = $64 ; Logical line cursor column.
+   180 = 0065			ADRESS = $65 ; word. S: Temp address for Display List, copy of SAVMSC, etc.
+   181
+   182 = 0066			MLTTMP = $66 ; word. Temp value for S: and in OPEN
+   183 = 0068			SAVADR = $68 ; word. S: temporary value. 
+   184
+   185 = 006A			RAMTOP = $6A ; First page after end of usable memory.
+   186
+   187 = 006B			BUFCNT = $6B ; E: temp logical line size.
+   188 = 006C			BUFSTR = $6C ; word. E: temp value
+   189
+   190 = 006E			BITMSK = $6E ; S: bit mapping value
+   191 = 006F			SHFAMT = $6F ; S: pixel shift amount per graphics mode
+   192 = 0070			ROWAC =  $70 ; word. S: temporary row value
+   193 = 0072			COLAC =  $72 ; word. S: temporary column value
+   194
+   195 = 0074			ENDPT =  $74 ; word.  S: end point for Drawto.  Copy of DELTAR or DELTAC
+   196
+   197 = 0076			DELTAR = $76 ; S: ABS( NEWROW - ROWCRS )
+   198 = 0077			DELTAC = $77 ; word.  S: ABS( NEWCOL - COLCRS )
+   199 = 0079			ROWINC = $79 ; S: Row +/- (+1 or -1) 0 is down.  $FF is up.
+   200 = 007A			COLINC = $7A ; S: Column +/- (+1 or -1) 0 is right, $FF is left.
+   201
+   202 = 007B			SWPFLG = $7B ; S: text window swap control. 0 = graphics. $FF = text window.
+   203 = 007C			HOLDCH = $7C ; S: byte value for shifting.
+   204 = 007D			INSDAT = $7D ; S: temporary character value
+   205 = 007E			COUNTR = $7E ; word. S: Loop control for line drawing. Value of DELTAR or DELTAC.
+   206
+   207 				;=================================================
+   208 				; Cartridge-specific Page 0 - $7F to $D1
+   209 				;=================================================
+   210
+   211 				;=================================================
+   212 				; Atari BASIC/OSS BASIC XL values Page 0
+   213 				;=================================================
+   214 = 0080			LOMEM  = $80 ; word. BASIC start of memory.
+   215
+   216 = 0082			VNTP   = $82 ; word. BASIC Variable Name Table Pointer.
+   217 = 0084			VNTD   = $84 ; word. BASIC Variable Name Table End address (Dummy) 
+   218 = 0086			VVTP   = $86 ; word. BASIC Variable Value Table Pointer.
+   219
+   220 = 0088			STMTAB = $88 ; word. BASIC Start of Statements/user's BASIC program.
+   221 = 008A			STMCUR = $8A ; word. BASIC pointer to current statement.
+   222
+   223 = 008C			STARP  = $8C ; word. BASIC String and Array table pointer.
+   224 = 008E			RUNSTK = $8E ; word. BASIC Pointer to GOSUB/FOR-NEXT stack.
+   225
+   226 = 0090			MEMTP =  $90 ; word. BASIC pointer to end of user BASIC program.
+   227
+   228 = 0092			STOPLN = $92 ; word. BASIC line number where execution stopped due to Break key or error.
+   229 = 00C2			PROMPT = $C2 ; Input prompt character.
+   230
+   231 = 00C3			ERSAVE = $C3 ; BASIC error code for Stop or Trap.
+   232 = 00C8			COLOR =  $C8 ; color for Plot or Drawto. (copied to $2F)
+   233
+   234 = 00C9			PTABW =  $C9 ; BASIC tab width - number of columns between tab stops.
+   235
+   236 				;=================================================
+   237 				; OS Floating Point Library
+   238 				;=================================================
+   239 = 00D4			FR0 =    $D4 ; float.  Floating point register and USR return value to BASIC.
+   240 = 00DA			FRE =    $DA ; float.  Floating point register (extra).
+   241 = 00E0			FR1 =    $E0 ; float.  Floating point register 1.
+   242 = 00E6			FR2 =    $E6 ; float.  Floating point register 2.
+   243 = 00EC			FRX =    $EC ; Floating Point spare value
+   244 = 00ED			EEXP =   $ED ; Floating Point Exponent
+   245 = 00EE			NSIGN =  $EE ; Floating Point Sign.
+   246 = 00EF			ESIGN =  $EF ; Floating Point Sign of exponent.
+   247 = 00F0			FCHRFL = $F0 ; Flag for first character
+   248 = 00F1			DIGRT =  $F1 ; Digits to the right of the decimal.
+   249 = 00F2			CIX =    $F2 ; current character input index. Offset into INBUFF
+   250 = 00F3			INBUFF = $F3 ; word. input for text to BCD conversion.  output at LBUFF
+   251 = 00F5			ZTEMP1 = $F5 ; word. Floating point temporary register.
+   252 = 00F7			ZTEMP4 = $F7 ; word. Floating point temporary register.
+   253 = 00F9			ZTEMP3 = $F9 ; word. Floating point temporary register.
+   254 = 00FB			RADFLG = $FB ; or DEGFLG.  0 = radians.  6 = degrees.
+   255 = 00FC			FLPTR =  $FC ; word. Pointer to first Floating Point number for operation..
+   256 = 00FE			FPTR2 =  $FE ; word. Pointer to Floating Point number for operation.
+   257
+   258
+   259 				;=================================================
+   260 				; OS Page 2 
+   261 				;=================================================
+   262 = 0200			VDSLST = $0200 ; word. Display List interrupt address.
+   263
+   264 = 0202			VPRCED = $0202 ; word. Peripheral proceed line vector.
+   265 = 0204			VINTER = $0204 ; word. Peripheral interrupt vector.
+   266 = 0206			VBREAK = $0206 ; word. BRK instruction vector.
+   267
+   268 = 0208			VKEYBD = $0208 ; word. POKEY keyboard interrupt vector.
+   269 = 020A			VSERIN = $020A ; word. POKEY serial I/O receive data ready interrupt vector
+   270 = 020C			VSEROR = $020C ; word. POKEY serial I/O transmit data ready interrupt vector
+   271 = 020E			VSEROC = $020E ; word. POKEY serial bus transmit complete interrupt vector.
+   272
+   273 				; HIGH FREQUENCY POKEY TIMERS: 
+   274 				; Per Mapping The Atari  
+   275 				; (Timer 1/Channel 1 as example)
+   276 				; 
+   277 				; Store frequency base in AUDCTL/$D208/53768: 
+   278 				;    $00 = 64 kilohertz, 
+   279 				;    $01 = 15 kilohertz, 
+   280 				;    $60 = 1.79 megahertz).
+   281 				; Next, set the channel control register (AUDC1/$D201/53761). 
+   282 				; Store address of interrupt routine into VTIMR1 ($210/$211). 
+   283 				; Store 0 to STIMER/$D209/53769. 
+   284 				; Enable the interrupt:
+   285 				;    Store in POKMSK/$10 the value of POKMSK OR the interrupt number:
+   286 				;       1 = timer 1 interrupt, 
+   287 				;       2 = timer 2 interrupt, 
+   288 				;       4 = timer 4 interrupt -- no timer 3!). 
+   289 				;    Store the same value in IRQEN/$D20E/53774.
+   290 				;
+   291 				; An interrupt occurs when the timer counts down to zero. 
+   292 				; The timer is reloaded with the original value stored there, 
+   293 				; and the process begins all over again.
+   294 				;
+   295 				; The OS pushes the A register onto the stack before jumping 
+   296 				; through the vector address. 
+   297 				; X and Y are not saved. Push them on the stack if they will be used. 
+   298 				; Before RTI/return from the interrupt:
+   299 				;    PLA the X and Y from the stack if used
+   300 				;    PLA the Accumulator, and 
+   301 				;    Clear the interrupt with CLI.
+   302 = 0210			VTIMR1 = $0210 ; word. POKEY timer 1 interrupt vector.
+   303 = 0212			VTIMR2 = $0212 ; word. POKEY timer 2 interrupt vector.
+   304 = 0214			VTIMR4 = $0214 ; word. POKEY timer 4 interrupt vector.
+   305
+   306 = 0216			VIMIRQ = $0216 ; word. IRQ immediate vector.
+   307
+   308
+   309 				;=================================================
+   310 				; COUNTDOWN TIMERS
+   311 				;===============================================================
+   312 				;  TIMER    | CDTMV1  | CDTMV2  | CDTMV3   | CDTMV4  | CDTMV5  |
+   313 				;---------------------------------------------------------------
+   314 				; Decrement | stage 1 | stage 2 | stage 2  | stage 2 | stage 2 |
+   315 				; in VBI?   |         |         |          |         |         |
+   316 				;---------------------------------------------------------------
+   317 				; Interrupt | CDTMA1  | CDTMA2  |          |         |         |
+   318 				; Vector?   |         |         |          |         |         |
+   319 				;---------------------------------------------------------------
+   320 				; Countdown |         |         | CDTMF3   | CDTMF4  | CDTMF5  |
+   321 				; Flag?     |         |         |          |         |         |
+   322 				;---------------------------------------------------------------
+   323 				; OS use?   | I/O     |  no     | cassette |  no     |  no     |
+   324 				;           | timing  |         | I/O      |         |         |
+   325 				;===============================================================
+   326 = 0218			CDTMV1 = $0218 ; word. Countdown Timer Value 1.
+   327 = 021A			CDTMV2 = $021A ; word. Countdown Timer Value 2.
+   328 = 021C			CDTMV3 = $021C ; word. Countdown Timer Value 3.
+   329 = 021E			CDTMV4 = $021E ; word. Countdown Timer Value 4.
+   330 = 0220			CDTMV5 = $0220 ; word. Countdown Timer Value 5.
+   331
+   332 = 0222			VVBLKI = $0222 ; word. VBLANK immediate interrupt vector. 
+   333 = 0224			VVBLKD = $0224 ; word. VBLANK deferred interrupt vector.
+   334
+   335 = 0226			CDTMA1 = $0226 ; word. System Timer 1 vector address.
+   336 = 0228			CDTMA2 = $0228 ; word. System Timer 2 vector address.
+   337 = 022A			CDTMF3 = $022A ; Set when CDTMV3 counts down to 0.
+   338 = 022B			SRTIMR = $022B ; keyboard software repeat timer.
+   339 = 022C			CDTMF4 = $022C ; Set when CDTMV4 counts down to 0.
+   340 = 022D			INTEMP = $022D ; Temp value used by SETVBL.
+   341 = 022E			CDTMF5 = $022E ; Set when CDTMV5 counts down to 0.
+   342
+   343 				; SDMCTL = $022F in ANTIC.asm
+   344 				; SDLSTL = $0230 in ANTIC.asm
+   345 				; SSKCTL = $0232 in POKEY.asm
+   346 				; LPENH  = $0234 in ANTIC.asm
+   347 				; LPENV  = $0235 in ANTIC.asm
+   348
+   349 = 0236			BRKKY =  $0236 ; Break key interrupt vector
+   350
+   351 				; SIO Command Frame:
+   352 = 023A			CDEVIC = $023A ; SIO Bus ID number
+   353 = 023B			CCOMND = $023B ; SIO Bus command code
+   354 = 023C			CAUX1 =  $023C ; Command auxiliary byte 1
+   355 = 023D			CAUX2 =  $023D ; Command auxiliary byte 2
+   356
+   357 = 023E			TMPSIO = $023E ; SIO temporary byte
+   358 = 023F			ERRFLG = $023F ; SIO error flag (except timeout)
+   359 = 0240			DFLAGS = $0240 ; Disk flags from first byte of boot sector.
+   360 = 0241			DBSECT = $0241 ; Number of Boot sectors read.
+   361 = 0242			BOOTAD = $0242 ; word. Address of the boot loader.
+   362
+   363 = 0244			COLDST = $0244 ; Coldstart Flag. 0 = reset is warmstart.  1 = reset is coldstart.
+   364
+   365 = 0246			DSKTIM = $0246 ; Disk I/O timeout countdown.
+   366
+   367 = 0247			LINBUF = $0247 ; 40 characters. temporary buffer for screen data.
+   368
+   369 				; GPRIOR = $026F in GTIA.asm
+   370 				; PADDL0 = $0270 in POKEY.asm
+   371 				; PADDL1 = $0271 in POKEY.asm
+   372 				; PADDL2 = $0272 in POKEY.asm
+   373 				; PADDL3 = $0273 in POKEY.asm
+   374 				; PADDL4 = $0274 in POKEY.asm
+   375 				; PADDL5 = $0275 in POKEY.asm
+   376 				; PADDL6 = $0276 in POKEY.asm
+   377 				; PADDL7 = $0277 in POKEY.asm
+   378 				; STICK0 = $0278 in POKEY.asm
+   379 				; STICK1 = $0279 in POKEY.asm
+   380 				; STICK2 = $027A in POKEY.asm
+   381 				; STICK3 = $027B in POKEY.asm
+   382 				; PTRIG0 = $027C in POKEY.asm
+   383 				; PTRIG1 = $027D in POKEY.asm
+   384 				; PTRIG2 = $027E in POKEY.asm
+   385 				; PTRIG3 = $027F in POKEY.asm
+   386 				; PTRIG4 = $0280 in POKEY.asm
+   387 				; PTRIG5 = $0281 in POKEY.asm
+   388 				; PTRIG6 = $0282 in POKEY.asm
+   389 				; PTRIG7 = $0283 in POKEY.asm
+   390 				; STRIG0 = $0284 in POKEY.asm
+   391 				; STRIG1 = $0285 in POKEY.asm
+   392 				; STRIG2 = $0286 in POKEY.asm
+   393 				; STRIG3 = $0287 in POKEY.asm
+   394
+   395 = 0288			CSTAT =  $0288 ; Cassette status register.
+   396 = 0289			WMODE =  $0289 ; Cassette Write mode.  0 = read. $80 = write
+   397 = 028A			BLIM =   $028A ; Cassette Buffer Limit. character count in buffer: 0 to $80.
+   398
+   399 = 0290			TXTROW = $0290 ; E: text window cursor row.
+   400 = 0291			TXTCOL = $0291 ; word. E: text window cursor column.
+   401 = 0293			TINDEX = $0293 ; Split-screen text window graphics mode.  
+   402 = 0294			TXTMSC = $0294 ; word. Address of first byte of text window when split screen is active.
+   403 = 0296			TXTOLD = $0296 ; 6 bytes -- split screen versions of OLDROW, OLDCOL (word), OLDCHR, OLDADR (word) 
+   404 = 029C			TMPX1 =  $029C ; 4 bytes -- Temp values for disply handler.
+   405 = 02A0			DMASK =  $02A0 ; Pixel Mask per current graphics mode. 1s set for bits that correspond to pixels.
+   406 					; 11111111 -- OS Modes 0, 1, 2, 12, 13 - 1 pixel is 1 byte
+   407 					; 11110000 -- OS Modes 9, 10, 11 for GTIA - 2 pixels each byte
+   408 					; 00001111
+   409 					; 11000000 -- OS Modes 3, 5, 7, 15 - 4 pixels each byte
+   410 					; 00110000 
+   411 					; 00001100
+   412 					; 00000011
+   413 					; 10000000 -- OS modes 4, 6, 8, 14 - 8 pixels each byte
+   414 					; 01000000
+   415 					; ... up to 
+   416 					; 00000001
+   417
+   418 = 02A1			TMPLBT = $02A1 ; Temporary value for bit mask.
+   419 = 02A2			ESCFLG = $02A2 ; Set to $80 when ESC key pressed. Reset to 0 for other characters.
+   420 = 02A3			TABMAP = $02A3 ; 15 bytes (120 bits) One bit for each character in a logical line.  1 = tab set. 0 = no tab.
+   421 = 02B2			LOGMAP = $02B2 ; 4 bytes. Bits of the first 3 bytes indicate the correspoding line on screen begins a logical line. 1 = start of logical line.
+   422 = 02B6			INVFLG = $02B6 ; When set to $80, input from E: occurs in inverse video.
+   423 = 02B7			FILFLG = $02B7 ; If operation is Draw this is 0. If operation is Fill, this is !0.
+   424 = 02B8			TMPROW = $02B8 ; Temporary row from ROWCRS
+   425 = 02B9			TMPCOL = $02B9 ; word. Temporary column from COLCRS
+   426 = 02BB			SCRFLG = $02BB ; Count number of physical lines in a logical line removed from screen.
+   427 = 02BE			SHFLOK = $02BE ; $0 for lowercase. $40 for uppercase (shift). $80 for control (ctrl) 
+   428 = 02BF			BOTSCR = $02BF ; Number of rows available for printing. 24 for OS Mode 0.  4 for text windows.
+   429
+   430 				; PCOLOR0 = $02C0 in GTIA.asm
+   431 				; PCOLOR1 = $02C1 in GTIA.asm
+   432 				; PCOLOR2 = $02C2 in GTIA.asm
+   433 				; PCOLOR3 = $02C3 in GTIA.asm
+   434 				; COLOR0 =  $02C4 in GTIA.asm
+   435 				; COLOR1 =  $02C5 in GTIA.asm
+   436 				; COLOR2 =  $02C6 in GTIA.asm
+   437 				; COLOR3 =  $02C7 in GTIA.asm
+   438 				; COLOR4 =  $02C8 in GTIA.asm
+   439
+   440 				; RUNAD =   $02E0 in DOS.asm
+   441 				; INITAD =  $02E2 in DOS.asm
+   442
+   443 = 02E4			RAMSIZ = $02E4 ; Highest usable Page number (high byte)
+   444 = 02E5			MEMTOP = $02E5 ; word. Pointer to last byte usable by application. OS display data follows.
+   445 = 02E7			MEMLO =  $02E7 ; word. Pointer to start of free mememory. ($0700 default, $1CFc with DOS 2, $23DC with 850 driver)
+   446
+   447 = 02EA			DVSTAT = $02EA ; 4 bytes. Status registers for serial device status. Different for Disk vs 850.
+   448
+   449 = 02EE			CBAUDL = $02EE ; low byte cassette bps rate.
+   450 = 02EF			CBAUDH = $02EF ; high byte cassette bps rate.
+   451
+   452 = 02F0			CRSINH = $02F0 ; Cursor Inhibit.  0 = cursor on.  1 = cursor off.
+   453 = 02F1			KEYDEL = $02F1 ; Key delay counter. Starts at 3, decremented each frame until 0.
+   454 = 02F2			CH1 =    $02F2 ; Keyboard character code previously in CH/$02FC.
+   455
+   456 				; CHACT = $02F3 in ANTIC.asm
+   457 				; CHBAS = $02F4 in ANTIC.asm
+   458
+   459 = 02FA			ATACHR = $02FA ; Last value read or written at graphics cursor.  Atascii in text modes. color number in others.  
+   460 				; CH =     $02FC ; in POKEY.asm KBCODE - Internal keyboard code of last key pressed.  $FF is no key pressesd.
+   461 = 02FD			FILDAT = $02FD ; Color for the fill region.
+   462 = 02FE			DSPFLG = $02FE ; E: config for cursor control characters. 0 = normal operation. !0 = Display cursor controls instead of acting on them.
+   463 = 02FF			SSFLAG = $02FF ; Scrolling stop/start control. 0 = normal scrolling.  $FF = stop scrolling.
+   464
+   465 				;=================================================
+   466 				; OS Page 3
+   467 				;=================================================
+   468 = 0300			DDEVIC = $0300 ; Serial bus device ID. Set by Handler.
+   469 = 0301			DUNIT =  $0301 ; Device unit number. Set by user program.
+   470 = 0302			DCOMND = $0302 ; Device command set by handler or the user program.
+   471 = 0303			DSTATS = $0303 ; Status code for user program. Handler's data frame direction for SIO. 
+   472 = 0304			DBUFLO = $0304 ; word. Data buffer address.
+   473 = 0305			DBUFHI = $0305 
+   474 = 0306			DTIMLO = $0306 ; Handler timeout in (approx) seconds.
+   475 = 0308			DBYTLO = $0308 ; word. Number of bytes transferred to/from buffer.
+   476 = 0309			DBYTHI = $0309 
+   477 = 030A			DAUX1 =  $030A ; Information specific to device.  (sector number) 
+   478 = 030B			DAUX2 =  $030B ; Information specific to device.  (sector number) 
+   479
+   480 = 030C			TIMER1 = $030C ; Timer for BPS rate 
+   481 = 030E			ADDCOR = $030E ; Math correction for calculating bps rate 
+   482 = 030F			CASFLG = $030F ; SIO Cassette mode or not. 0 = standard SIO. !0 = cassette.
+   483 = 0310			TIMER2 = $0310 ; word. End timer for bps rate.
+   484 = 0312			TEMP1 =  $0312 ; word. Temporary value for SIO bps calculations.
+   485 = 0314			TEMP2 =  $0314 ; Temporary value
+   486 = 0315			TEMP3 =  $0315 ; Temporary value
+   487 = 0316			SAVIO =  $0316 ; SIO flag for bit arrival.
+   488 = 0317			TIMFLG = $0317 ; Timeout for bps rate correction.
+   489 = 0318			STACKP = $0318 ; SIO stack pointer.
+   490 = 0319			TSTAT =  $0319 ; Temporary status.
+   491
+   492 				; Handler Address Table
+   493 				; 12 entries, 3 bytes each:
+   494 				; Atascii character for device.
+   495 				; Handler address LSB/MSB.
+   496 = 031A			HATABS = $031A ; 36 bytes of handler entries, 3 bytes each.
+   497
+   498 				; CIO Block.  ** denotes commonly used fields **
+   499 = 0340			IOCB =  $0340   ; Base IO Control Block
+   500 = 0340			ICHID = IOCB+$00 ; Handler ID
+   501 = 0341			ICDNO = IOCB+$01 ; Device number
+   502 = 0342			ICCMD = IOCB+$02 ; ** CIO Command **
+   503 = 0343			ICSTA = IOCB+$03 ; CIO Status
+   504 = 0344			ICBAL = IOCB+$04 ; ** Buffer address (low) **
+   505 = 0345			ICBAH = IOCB+$05 ; ** Buffer address (high) **
+   506 = 0346			ICPTL = IOCB+$06 ; Put char routine (low)
+   507 = 0347			ICPTH = IOCB+$07 ; Put char routine (high)
+   508 = 0348			ICBLL = IOCB+$08 ; ** Buffer length (low) **
+   509 = 0349			ICBLH = IOCB+$09 ; ** Buffer length (high) **
+   510 = 034A			ICAX1 = IOCB+$0A ; ** Aux Byte 1 **
+   511 = 034B			ICAX2 = IOCB+$0B ; ** Aux Byte 2 **
+   512 = 034C			ICAX3 = IOCB+$0C ; Aux Byte 3  
+   513 = 034D			ICAX4 = IOCB+$0D ; Aux Byte 4  
+   514 = 034E			ICAX5 = IOCB+$0E ; Aux Byte 5  
+   515 = 034F			ICAX6 = IOCB+$0F ; Aux Byte 6  
+   516
+   517 = 0340			IOCB0 = IOCB  ; IOCB for channel 0
+   518 = 0350			IOCB1 = $0350 ; IOCB for channel 1
+   519 = 0360			IOCB2 = $0360 ; IOCB for channel 2
+   520 = 0370			IOCB3 = $0370 ; IOCB for channel 3
+   521 = 0380			IOCB4 = $0380 ; IOCB for channel 4
+   522 = 0390			IOCB5 = $0390 ; IOCB for channel 5
+   523 = 03A0			IOCB6 = $03A0 ; IOCB for channel 6
+   524 = 03B0			IOCB7 = $03B0 ; IOCB for channel 7
+   525
+   526 = 03C0			PRNBUF = $03C0 ; 40 bytes up to $3E7
+   527
+   528 				; CIO Common Device Commands
+   529 = 0003			CIO_OPEN =       $03
+   530 = 0005			CIO_GET_RECORD = $05
+   531 = 0007			CIO_GET_BYTES =  $07
+   532 = 0009			CIO_PUT_RECORD = $09
+   533 = 000B			CIO_PUT_BYTES =  $0B
+   534 = 000C			CIO_CLOSE =      $0C
+   535 = 000D			CIO_STATUS =     $0D
+   536 = 000E			CIO_SPECIAL =    $0E
+   537
+   538 				; CIO Device Commands for D:
+   539 = 0020			CIO_D_RENAME =      $20 ; Rename a file
+   540 = 0021			CIO_D_DELETE =      $21 ; Delete the named file
+   541 = 0023			CIO_D_LOCK =        $23 ; Lock/protect the file
+   542 = 0024			CIO_D_UNLOCK =      $24 ; unlock/unprotect the file
+   543
+   544 = 0025			CIO_D_POINT =       $25 ; Move to sector/byte position
+   545 = 0026			CIO_D_NOTE =        $26 ; Get current sector/byte position
+   546
+   547 = 0027			CIO_D_FILELEN =     $27 ; Get file length
+   548 = 0029			CIO_D_CD_MYDOS =    $29 ; MyDos cd (change directory)
+   549 = 002A			CIO_D_MKDIR_MYDOS = $2A ; MyDos (and SpartaDos) mkdir (make directory)
+   550 = 002B			CIO_D_RMDIR_SPDOS = $2B ; SpartaDos rmdir (remove directory)
+   551 = 002C			CIO_D_CD_SPDOS    = $2C ; SpartaDos cd (change directory)
+   552 = 0030			CIO_D_PWD_MYDOS   = $30 ; MyDos (and SpartaDos) print/get working directory 
+   553
+   554 = 00FE			CIO_D_FORMAT =      $FE ; Format Disk
+   555
+   556 				; CIO Device Commands for S:
+   557 = 0011			CIO_S_DRAWTO = $11
+   558 = 0012			CIO_S_FILL =   $12
+   559
+   560 				; ICAX1 Common Options (OPEN modes).
+   561 = 0004			CIO_ICAX_READ      = $04
+   562 = 0008			CIO_ICAX_WRITE     = $08 ; READ + WRITE starts I/O at first byte.
+   563
+   564 				; ICAX1 Less Common Options (OPEN modes.)
+   565 = 0001			CIO_ICAX_E_FORCED     = $01 ; E: FORCED input. Usually with READ + WRITE.
+   566 = 0001			CIO_ICAX_D_APPEND     = $01 ; D: Write starts at end of file. Usually with READ + WRITE.
+   567 = 0002			CIO_ICAX_D_DIRECTORY  = $02 ; D: DIRECTORY.  Use with READ. 
+   568
+   569 = 0010			CIO_ICAX_S_TEXTWINDOW = $10 ; S: Open graphics mode with text window. Ignored for 0, 9, 10, 11.
+   570 = 0020			CIO_ICAX_S_DONOTCLEAR = $20 ; S: Suppress clear screen for graphics mode. 
+   571
+   572 				; Note: 
+   573 				; The ICAX2 value for S: is the OS graphics mode number.
+   574 				; If the mode is 0, 9, 10, or 11 the text Window option is ignored.
+   575
+   576 				;=================================================
+   577 				; OS Page 4, 5, 6   
+   578 				;=================================================
+   579 = 03FD			CASBUF = $03FD ; 128 bytes up to $047F (ends in page 4)
+   580
+   581 				; $0480 to $06FF are free if BASIC and FP are not used. 
+   582
+   583 				; $057E to $05FF
+   584 				; Various line/buffer values for FP package.
+   585
+   586 = 057E			LBPR1 =  $057E ; LBUFF Prefix 1.
+   587 = 057F			LBPR2 =  $057F ; LBUFF Prefix 2.
+   588 = 0580			LBUFF =  $0580 ; up to $5FF. Text buffer for FP/ATASCII conversions.
+   589 = 05E0			PLYARG = $05E0 ; Polynomial arguments for FP package.
+   590 = 05E6			FPSCR =  $05E6 ; to $05EB -- FP temporary use
+   591 = 05EC			FPSCR1 = $05EC ; to $05FF -- FP temporary use
+   592
+   593 				;=================================================
+   594 				; Cartridge space 
+   595 				; Pages $80 through $9F 
+   596 				; Pages $A0 through $BF 
+   597 				;=================================================
+   598 				; CART B -- Atari 800 ONLY
+   599 = 8000			CARTB =  $8000 ; Start of Cart B/Right Cart (8K)
+   600 = 9FFA			CRBSTA = $9FFA ; word. Cart B/Right Start address.
+   601 = 9FFC			CRBFLG = $9FFC ; Cart B/right present.  Copied to $7 CTBFLG
+   602 = 9FFD			CRBBTF = $9FFD ; Cart B/right Boot Option bits. $1 = boot disk. $4 = Boot cart. $80 = diagnostic cart 
+   603 = 9FFE			CRBINI = $9FFE ; word. Init address for Cart B/Right for cold boot/warm start
+   604
+   605 = A000			CARTA =  $A000 ; Start of Cart A/Left Cart (8K)
+   606 = BFFA			CRASTA = $BFFA ; word. Cart A/Left Start address.
+   607 = BFFC			CRAFLG = $BFFC ; Cart A/Left present.  Copied to $6 CTAFLG
+   608 = BFFD			CRABTF = $BFFD ; Cart A/Left Boot Option bits. $01 = boot disk. $04 = Boot cart. $80 = diagnostic cart 
+   609 = BFFE			CRAINI = $BFFE ; word. Init address for Cart A/Left for cold boot/warm start
+   610
+   611 				;=================================================
+   612 				; XL OS ROM CSET 2 Pages $CC - $CF
+   613 				;=================================================
+   614 = CC00			ROM_CSET_2 = $CC00
+   615
+   616 				;=================================================
+   617 				; OS Floating Point Package 
+   618 				; Pages $D8 through $DF 
+   619 				;=================================================
+   620 				; FP Routines References:
+   621 				;  Page 0 - $D4 to $DB  
+   622 				;  Page 5 - $57E to $5FF
+   623 				; In/out usually FR0, and LBUFF
+   624 				;=================================================
+   625 = D800			AFP =    $D800 ; Convert ATASCII to FP
+   626 = D8E6			FASC =   $D8E6 ; Convert FP to ATASCII
+   627 = D9AA			IFP =    $D9AA ; Convert Integer to FP
+   628 = D9D2			FPI =    $D9D2 ; Convert FP to Integer
+   629 = DA44			ZFRO =   $DA44 ; Zero FR0
+   630 = DA46			ZFR1 =   $DA46 ; Zero FR1
+   631 = DA60			FSUB =   $DA60 ; Subtracttion - FR0 minus FR1
+   632 = DA66			FADD =   $DA66 ; Addition - FR0 plus FR1
+   633 = DADB			FMUL =   $DADB ; Multiplication - FR0 times FR1
+   634 = DB28			FDIV =   $DB28 ; Division - FR0 divided by FR1
+   635 = DD40			PLYEVL = $DD40 ; Evaluate FP Polynomial 
+   636 = DD89			FLD0R =  $DD89 ; Load FR0 from x, Y reg pointer
+   637 = DD8D			FLD0P =  $DD8D ; Load FR0 from FLPTR
+   638 = DD98			FLD1R =  $DD98 ; Load FR1 from x, Y reg pointer
+   639 = DD9C			FLD1P =  $DD9C ; Load FR1 from FLPTR
+   640 = DDA7			FST0R =  $DDA7 ; Store FR0 to address in X, Y registers
+   641 = DDAB			FST0P =  $DDAB ; Store FR0 using FLPTR 
+   642 = DDB6			FMOVE =  $DDB6 ; Move FR0 contents to FR1
+   643 = DDC0			EXP =    $DDC0 ; Exponentiation - FP base E 
+   644 = DDCC			EXP10 =  $DDCC ; FP base 10 exponentiations
+   645 = DECD			LOG =    $DECD ; FP natural log
+   646 = DED1			LOG10 =  $DED1 ; FP base 10 log
+   647
+   648 				;=================================================
+   649 				; OS ROM CSET Pages $E0 - $E3 
+   650 				;=================================================
+   651 = E000			ROM_CSET = $E000
+   652
+   653
+   654 				;=================================================
+   655 				; OS ROM VECTORs - Page $E4
+   656 				;=================================================
+   657 				; Device handler vectors specify:
+   658 				; Open 
+   659 				; Close 
+   660 				; Get Byte 
+   661 				; Put Byte 
+   662 				; Get Special
+   663 				; JMP to handler init routine
+   664 = E400			EDITRV = $E400 ; Screen editor vector table.
+   665 = E410			SCRENV = $E410 ; Screen editor vector table.
+   666 = E420			KEYBDV = $E420 ; Screen editor vector table.
+   667 = E430			PRINTV = $E430 ; Screen editor vector table.
+   668 = E440			CASETV = $E440 ; Screen editor vector table.
+   669
+   670 = E450			DISKIV = $E450 ; JMP vector for disk handler init
+   671 = E453			DSKINV = $E453 ; JMP vector for disk handler interface.
+   672
+   673 = E456			CIOV =   $E456 ; JSR vector for CIO. All CIO operations go through this address.
+   674 = E459			SIOV =   $E459 ; JMP vector for SIO.
+   675
+   676 				; JSR to set Vertical Blank Interupt Vector/Timer values.
+   677 				; Y register is the LSB of vector/routine or timer value.
+   678 				; X register is the MSB of vector/routine or timer value.
+   679 				; A register is the number of the Vertical Blank routine to change:
+   680 				;    1 == CDTMV1 - decremented Immediate VBI Stage 1 -- JSR to CDTMA1 $0226
+   681 				;    2 == CDTMV2 - decremented Immediate VBI Stage 2 -- JSR to CDTMA2 $0228
+   682 				;    3 == CDTMV3 - decremented Immediate VBI Stage 2 -- Zero CDTMF3 $022A
+   683 				;    4 == CDTMV4 - decremented Immediate VBI Stage 2 -- Zero CDTMF4 $022C
+   684 				;    5 == CDTMV5 - decremented Immediate VBI Stage 2 -- Zero CDTMF5 $022E
+   685 				;    6 == Immediate VBI
+   686 				;    7 == deferred VBI
+   687 = E45C			SETVBV = $E45C ; JSR Vector to set timers
+   688
+   689 				; User Immediate VBI routine should end by a JMP to this address 
+   690 				; to continue the OS Vertical Blank routine. 
+   691 = E45F			SYSVBV = $E45F ; JMP to end user Immediate VBI
+   692
+   693 				; User Deferred VBI routine should end by a JMP to this address 
+   694 				; to continue the OS Vertical Blank routine. 
+   695 = E462			XITVBV = $E462 ; JMP Vector to end user Deferred VBI
+   696
+   697 = E474			WARMSV = $E474 ; Usr() here will warmstart.
+   698 = E477			COLDSV = $E477 ; Usr() here to cold boot the system.
+   699
+   700 				; After this there is not much that a user program 
+   701 				; should reference or call.  
+   702 				; I/O should be done by CIO. 
+   703 				; Vertical Blank timers should be set by calling SETVBV.
+   704 				; Everything else is subject to change or reloaction 
+   705 				; in a future operating system.
+    31 					icl "DOS.asm"   ; LOMEM, load file start, and run addresses.
+Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/DOS.asm
+     1 				;=================================================
+     2 				; DOS memory and vectors
+     3 				; For Mads assembler
+     4 				; Ken Jennings
+     5 				;=================================================
+     6 				; Misc values related to DOS and file loading
+     7 				;
+     8 = 2000			LOMEM_DOS =     $2000 ; First memory after DOS
+     9 = 3308			LOMEM_DOS_DUP = $3308 ; First memory after DOS and DUP 
+    10 				;
+    11 				; Atari RUN ADDRESS.  
+    12 				; The binary load file has a segmented structure 
+    13 				; specifying starting address, and ending address, 
+    14 				; followed by the bytes to load in that memory range.  
+    15 				; DOS observes two special addresses when loading data.
+    16 				; If the contents of the INIT address changes ater loading
+    17 				; a segment DOS calls that address immediately. If the routine
+    18 				; returns to DOS cleanly then file loading continues.
+    19 				; If the contents of the RUN address changes DOS waits until
+    20 				; all segments from the file are loaded and then calls the RUN
+    21 				; address target.
+    22 				;
+    23 = 02E0			DOS_RUN_ADDR =  $02e0 ; Execute here when file loading completes.
+    24 = 02E2			DOS_INIT_ADDR = $02e2 ; Execute here immediately then resume loading.
+    25
+    32 				; --------------------------------------------------------------------------
+    33
+    34 				; ==========================================================================
+    35 				; Macros (No code/data declared)
+    36 					icl "macros.asm"
+Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
+     1 				;===============================================================================
+     2 				;	MACROS
+     3 				;===============================================================================
+     4 				; Generic, all-purpose, helper macros to shorten repetitive 
+     5 				; tasks and make more readable code
+     6 				;===============================================================================
+     7
+     8 				;===============================================================================
+     9 				; 6502 REGISTER MAINTENANCE
+    10 				;===============================================================================
+    11 				; Various shortcuts for managing 6502 A, X, Y registers typically used 
+    12 				; when entering/exiting interrupts.  
+    13 				;
+    14 				; Also, a couple routines for entry/exit from a routine called by JSR to 
+    15 				; preserve the registers and CPU flags, so the routine does not affect
+    16 				; the caller.
+    17 				;===============================================================================
+    18
+    19 				;-------------------------------------------------------------------------------
+    20 				;                                                               REGSAVEAY A Y
+    21 				;-------------------------------------------------------------------------------
+    22 				; mRegSaveAY 
+    23 				;
+    24 				; Save A, Y CPU registers on stack. 
+    25 				;-------------------------------------------------------------------------------
+    26
+    27 				.macro mRegSaveAY 
+    28 					PHA 
+    29 					TYA 
+    30 					PHA  
+    31 				.endm 
+    32
+    33 				;-------------------------------------------------------------------------------
+    34 				;                                                               REGSAVEAX A X
+    35 				;-------------------------------------------------------------------------------
+    36 				; mRegSaveAX
+    37 				;
+    38 				; Save A, X CPU registers on stack. 
+    39 				;-------------------------------------------------------------------------------
+    40
+    41 				.macro mRegSaveAX  
+    42 					PHA 
+    43 					TXA 
+    44 					PHA  
+    45 				.endm 
+    46
+    47 				;-------------------------------------------------------------------------------
+    48 				;                                                               REGSAVEAYX A Y X
+    49 				;-------------------------------------------------------------------------------
+    50 				; mRegSaveAYX 
+    51 				;
+    52 				; Save A, Y, X CPU registers on stack. 
+    53 				;-------------------------------------------------------------------------------
+    54
+    55 				.macro mRegSaveAYX  
+    56 					PHA 
+    57 					TYA 
+    58 					PHA 
+    59 					TXA 
+    60 					PHA 
+    61 				.endm 
+    62
+    63 				;-------------------------------------------------------------------------------
+    64 				;                                                               REGRESTOREAY A Y
+    65 				;-------------------------------------------------------------------------------
+    66 				; mRegRestoreAY
+    67 				;
+    68 				; Restore A, Y CPU registers from stack. 
+    69 				;-------------------------------------------------------------------------------
+    70
+    71 				.macro mRegRestoreAY  
+    72 					PLA 
+    73 					TAY 
+    74 					PLA 
+    75 				.endm 
+    76
+    77 				;-------------------------------------------------------------------------------
+    78 				;                                                               REGRESTOREAX A X
+    79 				;-------------------------------------------------------------------------------
+    80 				; mRegRestoreAX
+    81 				;
+    82 				; Restore A, X CPU registers from stack. 
+    83 				;-------------------------------------------------------------------------------
+    84
+    85 				.macro mRegRestoreAX  
+    86 					PLA 
+    87 					TAX 
+    88 					PLA 
+    89 				.endm 
+    90
+    91 				;-------------------------------------------------------------------------------
+    92 				;                                                            REGRESTOREAYX A Y X
+    93 				;-------------------------------------------------------------------------------
+    94 				; mRegRestoreAYX 
+    95 				;
+    96 				; Restore A, Y, X CPU registers from stack. 
+    97 				;-------------------------------------------------------------------------------
+    98
+    99 				.macro mRegRestoreAYX  
+   100 					PLA 
+   101 					TAX 
+   102 					PLA 
+   103 					TAY 
+   104 					PLA 
+   105 				.endm 
+   106
+   107 				;-------------------------------------------------------------------------------
+   108 				;                                                               REGSAVE P A Y X
+   109 				;-------------------------------------------------------------------------------
+   110 				; mRegSave 
+   111 				;
+   112 				; Saves the CPU registers so subroutines do not disturb the 
+   113 				; register states and logic/flow of the main code.
+   114 				;-------------------------------------------------------------------------------
+   115
+   116 				.macro mRegSave  
+   117 					PHP 
+   118 					
+   119 					mRegSaveAYX
+   120 				.endm 
+   121
+   122 				;-------------------------------------------------------------------------------
+   123 				;                                                            REGRESTORE X Y A P
+   124 				;-------------------------------------------------------------------------------
+   125 				; mRegRestore 
+   126 				;
+   127 				; Restore A, Y, X CPU registers from stack. 
+   128 				;-------------------------------------------------------------------------------
+   129
+   130 				.macro mRegRestore  
+   131 					mRegRestoreAYX
+   132 					
+   133 					PLP 
+   134 				.endm 
+   135
+   136 				;-------------------------------------------------------------------------------
+   137 				;                                                             REGSAFERTS X Y A P
+   138 				;-------------------------------------------------------------------------------
+   139 				; mRegSafeRTS 
+   140 				;
+   141 				; Restores CPU registers for safe return from a routine 
+   142 				; that used saveRegs to preserve the CPU registers.
+   143 				;
+   144 				; Includes the RTS.
+   145 				;-------------------------------------------------------------------------------
+   146
+   147 				.macro mRegSafeRTS  
+   148 					mRegRestore
+   149 					
+   150 					RTS 
+   151 				.endm 
+   152
+   153 				;===============================================================================
+   154 				; The Basic Choice - (paper or plastic?)
+   155 				;===============================================================================
+   156 				; Load an explicit value or load from memeory?
+   157 				; This means do not use page 0 references which would 
+   158 				; be considered values less than 256, and the 
+   159 				; address would be loaded as an explit value instead.
+   160 				; (Which could be useful if you know what you're doing).
+   161 				;===============================================================================
+   162
+   163 				.macro mLDA_VM  value
+   164 					.if :0<>1
+   165 						.error "LDA_VM: 1 argument required"
+   166 					.else
+   167 						.if :value>$FF
+   168 							lda :value  ; get from memory
+   169 						.else
+   170 							lda #:value ; Get constant value
+   171 						.endif
+   172 					.endif
+   173 				.endm
+   174
+   175 				.macro mLDX_VM  value
+   176 					.if :0<>1
+   177 						.error "LDX_VM: 1 argument required"
+   178 					.else
+   179 						.if :value>$FF
+   180 							ldx :value  ; get from memory
+   181 						.else
+   182 							ldx #:value ; Get constant value
+   183 						.endif
+   184 					.endif
+   185 				.endm
+   186
+   187 				.macro mLDY_VM  value
+   188 					.if :0<>1
+   189 						.error "LDY_VM: 1 argument required"
+   190 					.else
+   191 						.if :value>$FF
+   192 							ldy :value  ; get from memory
+   193 						.else
+   194 							ldy #:value ; Get constant value
+   195 						.endif
+   196 					.endif
+   197 				.endm
+   198
+   199 				;===============================================================================
+   200 				; 16-BIT LOADS
+   201 				;===============================================================================
+   202 				; Load/move 16-bit values
+   203 				;===============================================================================
+   204
+   205 				;-------------------------------------------------------------------------------
+   206 				;                                                                LOADINT_M   A
+   207 				;-------------------------------------------------------------------------------
+   208 				; mLoadInt_M <Destination Address>, <Source Address>
+   209 				;
+   210 				; Loads the 16-bit value stored at <Source Address> into <Destination Address>.
+   211 				; 
+   212 				; Can be used to assign an address to a page 0 location for 
+   213 				; later indirect addressing.
+   214 				; In general, copies a 16-bit value to any address.   
+   215 				; Like (in C):  C = D.
+   216 				;-------------------------------------------------------------------------------
+   217
+   218 				.macro mLoadInt_M  target,source
+   219 					.IF :0<>2
+   220 						.ERROR "LoadInt_M: 2 arguments (target addr, source addr) required."
+   221 					.ELSE
+   222 						lda :source
+   223 						sta :target
+   224 						lda :source + 1
+   225 						sta :target + 1
+   226 					.ENDIF
+   227 				.endm
+   228
+   229 				;-------------------------------------------------------------------------------
+   230 				;                                                                LOADINT_V  A
+   231 				;-------------------------------------------------------------------------------
+   232 				; mLoadInt_V <Destination Address>, <Value>
+   233 				;
+   234 				; Loads the immediate 16-bit <Value> into <Destination Address>.
+   235 				; 
+   236 				; Can be used to assign an address to a page 0 location for 
+   237 				; later indirect addressing.
+   238 				; In general, stores an immediate 16-bit value at any address.
+   239 				; Like (in C):
+   240 				;  C = 12  or 
+   241 				;  C = &D
+   242 				;-------------------------------------------------------------------------------
+   243
+   244 				.macro mLoadInt_V  target,value
+   245 					.if :0<>2
+   246 						.error "LoadInt_V: 2 arguments (target addr, 16-bit value) required."
+   247 					.else
+   248 						lda #<:value
+   249 						sta :target
+   250 						lda #>:value
+   251 						sta :target + 1
+   252 					.endif
+   253 				.endm
+   254
+   255 				;===============================================================================
+   256 				; DISK SHENANIGANS
+   257 				;===============================================================================
+   258 				; The Atari executable file is a structured format.  The file contents identify
+   259 				; starting address, ending address, and the data to load.  This feature 
+   260 				; ordinarily allows the assembler to optimize the file size by describing only
+   261 				; the segments of memory needed for the program.  However, it can also be
+   262 				; abused to set values into any memory location during the program load time,
+   263 				; such as the operating system shadow registers.  This allows the act of 
+   264 				; loading the program to also perform a degree of initialization that applies
+   265 				; configuration to the system without the program expending its own code 
+   266 				; space to load and store values.
+   267 				;
+   268 				; The assembler supports this simply by changing the program address *=
+   269 				; and then declaring storage (.byte, etc.)  These macros capture the 
+   270 				; current program address in a temporary variable, set the current
+   271 				; address,  declare the supplied value, then restore the program 
+   272 				; address to the originally captured value.
+   273 				;
+   274 				; I think I recall Mac/65 would keep writes like this in the order in 
+   275 				; which they occur.  But, it seems atasm collects (optimizes) these changes 
+   276 				; of current program address into groups.  Use with caution.  Your Mileage 
+   277 				; Will Definitely Vary.
+   278 				;
+   279 				; Maximum effectiveness using disk load would enable Title screens, 
+   280 				; animation, music, etc. at known locations/events while loading the 
+   281 				; main program.  Accomplishing this with atasm requires separate builds 
+   282 				; and then concatenating the programs together.
+   283 				;===============================================================================
+   284
+   285 				;-------------------------------------------------------------------------------
+   286 				;                                                                  DiskPoke
+   287 				;-------------------------------------------------------------------------------
+   288 				; mDiskPoke <Address> <byte value>
+   289 				;
+   290 				; Utilize the Atari's structured disk format to load a BYTE value into a memory
+   291 				; location at the program load time.
+   292 				;-------------------------------------------------------------------------------
+   293
+   294 				.macro mDiskPoke  address,value
+   295 					.if :0<>2
+   296 						.error "DiskPoke: 2 arguments (target addr, byte value) required."
+   297 					.else
+   298 						.if :value>$FF
+   299 							.error "DiskPoke: Agument 2 for byte value is greater then $FF"
+   300 						.else
+   301 							DISKPOKE_TEMP =*
+   302 							ORG :address
+   303 							.byte :value
+   304 							ORG DISKPOKE_TEMP
+   305 						.endif
+   306 					.endif
+   307 				.endm 
+   308
+   309 				;-------------------------------------------------------------------------------
+   310 				;                                                                  DiskDPoke
+   311 				;-------------------------------------------------------------------------------
+   312 				; mDiskDPoke <Address> <16-bit value>
+   313 				;
+   314 				; Utilize the Atari's structured disk format to load a 16-bit WORD value into a 
+   315 				; memory location at the program load time.
+   316 				; 
+   317 				; Note that this macro cannot be used until AFTER a valid ORG address is 
+   318 				; specified for assembly. If this is not done, then ORG DISKDPOKE_TEMP
+   319 				; becomes an error.
+   320 				;-------------------------------------------------------------------------------
+   321
+   322 				.macro mDiskDPoke  address,value
+   323 					.if :0<>2
+   324 						.error "DiskDPoke: 2 arguments (target addr, integer value) required."
+   325 					.else
+   326 						DISKDPOKE_TEMP =*
+   327 						ORG :address
+   328 						.word :value
+   329 						ORG DISKDPOKE_TEMP
+   330 					.endif
+   331 				.endm 
+   332
+   333 				;-------------------------------------------------------------------------------
+   334 				;                                                                CHAINDLI A
+   335 				;-------------------------------------------------------------------------------
+   336 				; mChainDLI 
+   337 				;
+   338 				; Use after a DLI to exit and change DLI vector to new address.
+   339 				;
+   340 				; It will only update the low byte/high byte of the vector when 
+   341 				; they are different. 
+   342 				;
+   343 				; Restore Accumulator from stack.
+   344 				;
+   345 				; Exits interrupt with RTI.
+   346 				;-------------------------------------------------------------------------------
+   347
+   348 				.macro mChainDLI  ; current_DLI,next_DLI
+   349 					.if :0<>2
+   350 						.error "mChainDLI: 2 arguments required (Current DLI, Next DLI)
+   351 					.endif
+   352 				
+   353 					; If the same, then no need to change low byte.
+   354 					.if [<:current_DLI]<>[<:next_DLI] 
+   355 						lda #<:next_DLI ; Low byte of next DLI address
+   356 						sta VDSLST      ; Set vector
+   357 					.endif
+   358 				
+   359 					; If the same, then no need to change high byte.
+   360 					.if [>:current_DLI]<>[>:next_DLI] 
+   361 						lda #>:next_DLI ; High byte of next DLI address
+   362 						sta VDSLST+1    ; Set vector
+   363 					.endif
+   364 				
+   365 					pla ; restore A from stack
+   366 					rti ; DLI complete
+   367 				.endm
+   368
+    37 				; --------------------------------------------------------------------------
+    38
+    39 				; ==========================================================================
+    40 				; We need a page 0 pointer.   The return var from USR to BASIC is
+    41 				; convenient enough.  Just ignore the return value in BASIC.
+    42 				; --------------------------------------------------------------------------
+    43
+    44 = 00D4			ZRET =  $D4     ; this is FR0 $D4/$D5 aka Return Value to BASIC.
+    45
+    46 				; ==========================================================================
+    47 				; The INIT and the SPEAK routines are expected to be called by BASIC, so
+    48 				; there is additional stack management in those entry points.
+    49 				; The actual work is done by the VBI.
+    50 				;
+    51 				; The starting address here is arbitrary.  $9B is the page BEFORE the 
+    52 				; location where the Display list occurs on any Atari with 40K or 
+    53 				; more RAM and running 8K cartridge BASIC.
+    54 				; --------------------------------------------------------------------------
+    55
+    56 					ORG $9B00
+    57
+    58 				; ==========================================================================
+    59 				; Init is called ONCE by BASIC and it will setup PIA 
+    60 				; and start the VBI routine.
+    61 				; --------------------------------------------------------------------------
+    62
+    63 				CheepTalkInit
+    64 FFFF> 9B00-9BC9> 68		pla ; ugliness that assumes no parameters passed.
+    65 					
+    66 9B01 AD C4 9B			lda CT_InitFlag       ; Is this already initialized? 
+    67 9B04 D0 29			bne ExitCheepTalkInit ; Yes.  Do not repeat.
+    68
+    69 					; Zero the block of variables
+    70 9B06 A2 05			ldx #5
+    71 9B08			bCTI_LoopClear
+    72 9B08 9D C5 9B			sta CT_Status,x
+    73 9B0B CA				dex
+    74 9B0C 10 FA			bpl bCTI_LoopClear
+    75 					
+    76 					; Configure the PIA to do I/O.
+    77
+    78 9B0E AE C3 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
+    79 9B11 BD 02 D3			lda PACTL,x               ; Get current value of port control.
+    80 9B14 48				pha                       ; Save to put back later.
+    81
+    82 9B15 A9 FB			lda #MASK_PORT_ADDRESSING ; This value is "Accept Read/Write control".  See PIA.asm %11111011 ; 
+    83 9B17 9D 02 D3			sta PACTL,x               ; Set PIA control to configure Read/Write...
+    84
+    85 9B1A A9 7F			lda #%01111111            ; highest bit is read. lowest 7 bits are write.  
+    86 9B1C 9D 00 D3			sta PORTA,x               ; and now I/O directions are set.
+    87
+    88 9B1F 68				pla                       ; Get original PACTL value.
+    89 9B20 9D 02 D3			sta PACTL,x               ; Get current value of port control.
+    90
+    91 					; Set up the deferred VBI.
+    92
+    93 9B23 A0 65			ldy #<CheepTalkVBI        ; Add the VBI to the system 
+    94 9B25 A2 9B			ldx #>CheepTalkVBI
+    95 9B27 A9 07			lda #7                    ; 7 = Deferred VBI
+    96 9B29 20 5C E4			jsr SETVBV                ; Tell OS to set it up
+    97
+    98 9B2C EE C4 9B			inc CT_InitFlag           ; Flag to not do the setup again.
+    99 					
+   100 9B2F			ExitCheepTalkInit
+   101 9B2F 60				rts
+   102
+   103
+   104 				; ==========================================================================
+   105 				; Speak is called by BASIC by BASIC.  
+   106 				; If speaking is busy it will wait until speaking is done.  
+   107 				; (In another version this could exit instead.  
+   108 				; Or this could be made to override the current string to begin a new one.) 
+   109 				;
+   110 				; The function expects there must be two parameters, address, and length.
+   111 				; --------------------------------------------------------------------------
+   112
+   113 9B30			CheepTalkSpeech
+   114 9B30 68				pla                     ; Get argument count
+   115 9B31 A8				tay                     ; copy to Y for cleanup
+   116 9B32 F0 30			beq ExitCheepTalkSpeech ; 0 arguments means incorrect setup.  Leave.  Immediately.
+   117
+   118 9B34 AD C4 9B			lda CT_InitFlag         ; VBI and ports not initialized.
+   119 9B37 F0 26			beq ExitAndCleanArgs    ; Therefore quit cleanly.
+   120
+   121 9B39 C9 02			cmp #2                  ; This must be 2 arguments, address and length
+   122 9B3B D0 22			bne ExitAndCleanArgs    ; Not 2 arguments.  clean up what is there.
+   123
+   124 9B3D			bCTS_CheckStatus
+   125 9B3D AD C5 9B			lda CT_Status           ; Get current VBI status.
+   126 9B40 D0 FB			bne bCTS_CheckStatus    ; Wait here until the VBI is done with the previous string.
+   127
+   128 					; This seems redundant, but I'm paranoid and need to be sure there's no possibility of 
+   129 					; hitting the VBI in the middle of BASIC attempting to get control of the data.
+   130
+   131 9B42 A5 14			lda RTCLOK60            ; Get the jiffy clock
+   132 9B44			bCTS_WaitForFrame
+   133 9B44 C5 14			cmp RTCLOK60            ; Is it the same?
+   134 9B46 F0 FC			beq bCTS_WaitForFrame   ; Keep looping until it changes.
+   135 					
+   136 					; Now, the code is running at the top of the frame, so it is not 
+   137 					; likely the VBI can interrupt this next line...
+   138
+   139 9B48 EE C5 9B			inc CT_Status           ; Tell the VBI not to do anything
+   140 					
+   141 9B4B 68				pla                     ; Pull arguments from stack...
+   142 9B4C 8D C7 9B			sta CT_SpeakPointer+1   ; High byte...
+   143 9B4F 68				pla 
+   144 9B50 8D C6 9B			sta CT_SpeakPointer     ; then Low byte....
+   145 9B53 68				pla                     ; etc.
+   146 9B54 8D C9 9B			sta CT_SpeakLen+1
+   147 9B57 68				pla
+   148 9B58 8D C8 9B			sta CT_SpeakLen
+   149 					
+   150 9B5B CE C5 9B			dec CT_Status           ; Tell the VBI it's OK to work again. 
+   151 9B5E 60				rts                     ; And we're finished .
+   152 					
+   153 9B5F			ExitAndCleanArgs            ; must pull parameters from stack. (count is in Y)
+   154 					
+   155 9B5F			bCTS_Dispose                ; Displose of any number of arguments
+   156 9B5F 68				pla
+   157 9B60 68				pla
+   158 9B61 88				dey                     ; Minus one argument
+   159 9B62 D0 FB			bne bCTS_Dispose        ; Loop if more to discard.
+   160
+   161 9B64			ExitCheepTalkSpeech
+   162 9B64 60				rts                    ; Abandon ship.
+   163 					
+   164
+   165 				; ==========================================================================
+   166 				; VBI.  
+   167 				; If BASIC is working on the controls, then exit.
+   168 				; If speaking is inactive, then check if there is a new non-zero length
+   169 				; to begin servicing a new string.
+   170 				; If length is 0, then nothing to do, so exit.
+   171 				; If the port indicates the speech synthesizer is busy, then exit.
+   172 				; Write out the CURRENT byte per the address pointer.
+   173 				; Increment the address.
+   174 				; Decrement the length.
+   175 				; If length is now 0, then update status to 0.
+   176 				; --------------------------------------------------------------------------
+   177
+   178 9B65			CheepTalkVBI
+   179 9B65 AD C5 9B			lda CT_Status
+   180 9B68 C9 01			cmp #1                ; Does Status say BASIC is working on the controls?
+   181 9B6A D0 54			bne ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
+   182 					
+   183 9B6C C9 00			cmp #0                ; Check if speaking is running. 
+   184 9B6E D0 0D			bne ServiceCheepTalk  ; Yes, speaking is in progress, so maintain it.
+   185
+   186 					; Speaking is not in progress at this time.
+   187 					; Did BASIC put usable speaking data in the controls ??
+   188
+   189 9B70 AD C8 9B			lda CT_SpeakLen       ; Get length
+   190 9B73 0D C9 9B			ora CT_SpeakLen+1     ; Combine with high byte
+   191 9B76 F0 48			beq ExitCheepTalkVBI  ; zero length. So, nothing new to speak.  Exit.
+   192 					
+   193 9B78 A9 02			lda #2                ; Tell BASIC that speaking is in progress.
+   194 9B7A 8D C5 9B			sta CT_Status
+   195 					
+   196 					; So, here is what the VBI does...
+   197 					; If the speech synthesizer is busy, then exit.
+   198 					; Write out the CURRENT byte per the address pointer.
+   199 					; Increment the address.
+   200 					; Decrement the length.
+   201 					; If length is now 0, then update status to 0.
+   202
+   203 9B7D			ServiceCheepTalk
+   204 9B7D AE C3 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
+   205 9B80 BD 00 D3			lda PORTA,x               ; Get data from port.
+   206 9B83 30 3B			bmi ExitCheepTalkVBI      ; High bit set means chip is still busy.
+   207
+   208 9B85 AD C6 9B			lda CT_SpeakPointer       ; Copy address pointer to 
+   209 9B88 85 D4			sta ZRET                  ; zero page for indirect addressing 
+   210 9B8A AD C7 9B			lda CT_SpeakPointer+1
+   211 9B8D 85 D5			sta ZRET+1
+   212 9B8F A0 00			ldy #0                    ; indirect index offset 0.
+   213
+   214 9B91 B1 D4			lda (ZRET),y              ; Got the next byte.
+   215
+   216 9B93 09 40			ora #%01000000            ; turn ON bit 6, value 64, or $40.
+   217 9B95 9D 00 D3			sta PORTA,x               ; Send to the port. 
+   218
+   219 					; I remember this was absolutely needed, because the synthesizer is slower than 
+   220 					; the Atari, but I don't remember how many NOPs were needed to pause. 
+   221 					; It may need more....
+   222 9B98 EA				nop
+   223 9B99 EA				nop
+   224 9B9A EA				nop
+   225 9B9B EA				nop
+   226 9B9C EA				nop
+   227 9B9D EA				nop
+   228 9B9E EA				nop
+   229 9B9F EA				nop
+   230 					
+   231 9BA0 29 3F			and #%00111111            ; turn OFF bit 6, value 64, or $40.
+   232 9BA2 9D 00 D3			sta PORTA,x               ; Send to the port. 
+   233
+   234 					; Prep the control data for the next vertical blank.
+   235
+   236 9BA5 EE C6 9B			inc CT_SpeakPointer
+   237 9BA8 90 03			bcc bCTV_SkipHiAddress    ; Overflow means increment high byte.
+   238 9BAA EE C7 9B			inc CT_SpeakPointer+1
+   239 9BAD			bCTV_SkipHiAddress
+   240
+   241 9BAD CE C8 9B			dec CT_SpeakLen
+   242 9BB0 90 03			bcc bCTV_SkipHiLength    ; Underflow means dec high byte.
+   243 9BB2 CE C9 9B			dec CT_SpeakLen+1
+   244 9BB5			bCTV_SkipHiLength
+   245
+   246 9BB5 AD C8 9B			lda CT_SpeakLen          ; Check if length is now 0.
+   247 9BB8 0D C9 9B			ora CT_SpeakLen+1
+   248 9BBB D0 03			bne ExitCheepTalkVBI     ; Not 0, so done.
+   249 					
+   250 9BBD 8D C5 9B			sta CT_Status            ; 0 in status means VBI is done speaking.
+   251
+   252 9BC0			ExitCheepTalkVBI
+   253 9BC0 4C 62 E4			jmp XITVBV              ; Return to OS. 
+   254
+   255 				; ==========================================================================
+   256 				; The supporting data.
+   257
+   258 9BC3			CT_PIA      ; Which PIA to use.  0 for Ports 1, 2, or 1 for Atari 400/800 Ports 3, 4
+   259 9BC3 00				.byte 0
+   260 						
+   261 9BC4			CT_InitFlag	
+   262 9BC4 00				.byte 0 ; 0 means uninitialized.  1 means init is done.
+   263
+   264 9BC5			CT_Status
+   265 9BC5 00				.byte 0 ; 1 means BASIC is working.  2 means speaking.  0 means done.
+   266
+   267 9BC6			CT_SpeakPointer
+   268 9BC6 00 00			.word $0000 ; Current pointer to string of phonemes.
+   269 					
+   270 9BC8			CT_SpeakLen
+   271 9BC8 00 00			.word $0000 ; Number of bytes to write.  At 0, speaking is over.
+   272 				                ; Assume the caller uses a sound-off phoneme at the end of the string.
+   273
+   274 					END
