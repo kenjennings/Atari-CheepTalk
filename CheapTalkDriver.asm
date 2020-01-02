@@ -233,13 +233,16 @@ ServiceCheepTalk
 
 	; Prep the control data for the next vertical blank.
 
-	inc CT_SpeakPointer
-	bcc bCTV_SkipHiAddress    ; Overflow means increment high byte.
+	inc CT_SpeakPointer       ; Overflow  from 255 to 0 means increment high byte.
+	bne bCTV_SkipHiAddress    ; If result is non-zero, then it did not overflow.
 	inc CT_SpeakPointer+1
 bCTV_SkipHiAddress
 
-	dec CT_SpeakLen
-	bcc bCTV_SkipHiLength    ; Underflow means dec high byte.
+	sec                      ; Set carry for subtraction.
+	lda CT_SpeakLen          ; dec not as simple as inc.
+	sbc #1
+	sta CT_SpeakLen
+	bcs bCTV_SkipHiLength    ; Did not use carry, so skip dec high byte.
 	dec CT_SpeakLen+1
 bCTV_SkipHiLength
 
