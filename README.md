@@ -1,6 +1,8 @@
 # Atari-CheepTalk
 Simple VBI Driver for the Cheep Talk Voice Synthesizer based on the SPO256-AL2 speech synthesizer chip.
 
+The VBI monitors the synthesizer chip and feeds it new phonemes from a string of bytes, so other things can continue without blocking/polling the voice synthesizer status.
+
 ---
 
 The assembly code for the Atari depends on my MADS include library here: https://github.com/kenjennings/Atari-Mads-Includes.  
