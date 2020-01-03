@@ -275,5 +275,3 @@ CT_SpeakLen
                 ; Assume the caller uses a sound-off phoneme at the end of the string.
 
 	END
-	
-	

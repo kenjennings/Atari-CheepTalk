@@ -1247,21 +1247,21 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
     61 				; --------------------------------------------------------------------------
     62
     63 				CheepTalkInit
-    64 FFFF> 9B00-9BC9> 68		pla ; ugliness that assumes no parameters passed.
+    64 FFFF> 9B00-9BCF> 68		pla ; ugliness that assumes no parameters passed.
     65 					
-    66 9B01 AD C4 9B			lda CT_InitFlag       ; Is this already initialized? 
+    66 9B01 AD CA 9B			lda CT_InitFlag       ; Is this already initialized? 
     67 9B04 D0 29			bne ExitCheepTalkInit ; Yes.  Do not repeat.
     68
     69 					; Zero the block of variables
     70 9B06 A2 05			ldx #5
     71 9B08			bCTI_LoopClear
-    72 9B08 9D C5 9B			sta CT_Status,x
+    72 9B08 9D CB 9B			sta CT_Status,x
     73 9B0B CA				dex
     74 9B0C 10 FA			bpl bCTI_LoopClear
     75 					
     76 					; Configure the PIA to do I/O.
     77
-    78 9B0E AE C3 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
+    78 9B0E AE C9 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
     79 9B11 BD 02 D3			lda PACTL,x               ; Get current value of port control.
     80 9B14 48				pha                       ; Save to put back later.
     81
@@ -1281,7 +1281,7 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
     95 9B27 A9 07			lda #7                    ; 7 = Deferred VBI
     96 9B29 20 5C E4			jsr SETVBV                ; Tell OS to set it up
     97
-    98 9B2C EE C4 9B			inc CT_InitFlag           ; Flag to not do the setup again.
+    98 9B2C EE CA 9B			inc CT_InitFlag           ; Flag to not do the setup again.
     99 					
    100 9B2F			ExitCheepTalkInit
    101 9B2F 60				rts
@@ -1301,14 +1301,14 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    115 9B31 A8				tay                     ; copy to Y for cleanup
    116 9B32 F0 30			beq ExitCheepTalkSpeech ; 0 arguments means incorrect setup.  Leave.  Immediately.
    117
-   118 9B34 AD C4 9B			lda CT_InitFlag         ; VBI and ports not initialized.
+   118 9B34 AD CA 9B			lda CT_InitFlag         ; VBI and ports not initialized.
    119 9B37 F0 26			beq ExitAndCleanArgs    ; Therefore quit cleanly.
    120
    121 9B39 C9 02			cmp #2                  ; This must be 2 arguments, address and length
    122 9B3B D0 22			bne ExitAndCleanArgs    ; Not 2 arguments.  clean up what is there.
    123
    124 9B3D			bCTS_CheckStatus
-   125 9B3D AD C5 9B			lda CT_Status           ; Get current VBI status.
+   125 9B3D AD CB 9B			lda CT_Status           ; Get current VBI status.
    126 9B40 D0 FB			bne bCTS_CheckStatus    ; Wait here until the VBI is done with the previous string.
    127
    128 					; This seems redundant, but I'm paranoid and need to be sure there's no possibility of 
@@ -1322,18 +1322,18 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    136 					; Now, the code is running at the top of the frame, so it is not 
    137 					; likely the VBI can interrupt this next line...
    138
-   139 9B48 EE C5 9B			inc CT_Status           ; Tell the VBI not to do anything
+   139 9B48 EE CB 9B			inc CT_Status           ; Tell the VBI not to do anything
    140 					
    141 9B4B 68				pla                     ; Pull arguments from stack...
-   142 9B4C 8D C7 9B			sta CT_SpeakPointer+1   ; High byte...
+   142 9B4C 8D CD 9B			sta CT_SpeakPointer+1   ; High byte...
    143 9B4F 68				pla 
-   144 9B50 8D C6 9B			sta CT_SpeakPointer     ; then Low byte....
+   144 9B50 8D CC 9B			sta CT_SpeakPointer     ; then Low byte....
    145 9B53 68				pla                     ; etc.
-   146 9B54 8D C9 9B			sta CT_SpeakLen+1
+   146 9B54 8D CF 9B			sta CT_SpeakLen+1
    147 9B57 68				pla
-   148 9B58 8D C8 9B			sta CT_SpeakLen
+   148 9B58 8D CE 9B			sta CT_SpeakLen
    149 					
-   150 9B5B CE C5 9B			dec CT_Status           ; Tell the VBI it's OK to work again. 
+   150 9B5B CE CB 9B			dec CT_Status           ; Tell the VBI it's OK to work again. 
    151 9B5E 60				rts                     ; And we're finished .
    152 					
    153 9B5F			ExitAndCleanArgs            ; must pull parameters from stack. (count is in Y)
@@ -1362,9 +1362,9 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    176 				; --------------------------------------------------------------------------
    177
    178 9B65			CheepTalkVBI
-   179 9B65 AD C5 9B			lda CT_Status
+   179 9B65 AD CB 9B			lda CT_Status
    180 9B68 C9 01			cmp #1                ; Does Status say BASIC is working on the controls?
-   181 9B6A D0 54			bne ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
+   181 9B6A D0 5A			bne ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
    182 					
    183 9B6C C9 00			cmp #0                ; Check if speaking is running. 
    184 9B6E D0 0D			bne ServiceCheepTalk  ; Yes, speaking is in progress, so maintain it.
@@ -1372,12 +1372,12 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    186 					; Speaking is not in progress at this time.
    187 					; Did BASIC put usable speaking data in the controls ??
    188
-   189 9B70 AD C8 9B			lda CT_SpeakLen       ; Get length
-   190 9B73 0D C9 9B			ora CT_SpeakLen+1     ; Combine with high byte
-   191 9B76 F0 48			beq ExitCheepTalkVBI  ; zero length. So, nothing new to speak.  Exit.
+   189 9B70 AD CE 9B			lda CT_SpeakLen       ; Get length
+   190 9B73 0D CF 9B			ora CT_SpeakLen+1     ; Combine with high byte
+   191 9B76 F0 4E			beq ExitCheepTalkVBI  ; zero length. So, nothing new to speak.  Exit.
    192 					
    193 9B78 A9 02			lda #2                ; Tell BASIC that speaking is in progress.
-   194 9B7A 8D C5 9B			sta CT_Status
+   194 9B7A 8D CB 9B			sta CT_Status
    195 					
    196 					; So, here is what the VBI does...
    197 					; If the speech synthesizer is busy, then exit.
@@ -1387,13 +1387,13 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    201 					; If length is now 0, then update status to 0.
    202
    203 9B7D			ServiceCheepTalk
-   204 9B7D AE C3 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
+   204 9B7D AE C9 9B			ldx CT_PIA                ; X = PIA number.  (Atari 400/800 have 0 and 1)
    205 9B80 BD 00 D3			lda PORTA,x               ; Get data from port.
-   206 9B83 30 3B			bmi ExitCheepTalkVBI      ; High bit set means chip is still busy.
+   206 9B83 30 41			bmi ExitCheepTalkVBI      ; High bit set means chip is still busy.
    207
-   208 9B85 AD C6 9B			lda CT_SpeakPointer       ; Copy address pointer to 
+   208 9B85 AD CC 9B			lda CT_SpeakPointer       ; Copy address pointer to 
    209 9B88 85 D4			sta ZRET                  ; zero page for indirect addressing 
-   210 9B8A AD C7 9B			lda CT_SpeakPointer+1
+   210 9B8A AD CD 9B			lda CT_SpeakPointer+1
    211 9B8D 85 D5			sta ZRET+1
    212 9B8F A0 00			ldy #0                    ; indirect index offset 0.
    213
@@ -1419,42 +1419,45 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    233
    234 					; Prep the control data for the next vertical blank.
    235
-   236 9BA5 EE C6 9B			inc CT_SpeakPointer
-   237 9BA8 90 03			bcc bCTV_SkipHiAddress    ; Overflow means increment high byte.
-   238 9BAA EE C7 9B			inc CT_SpeakPointer+1
+   236 9BA5 EE CC 9B			inc CT_SpeakPointer       ; Overflow  from 255 to 0 means increment high byte.
+   237 9BA8 D0 03			bne bCTV_SkipHiAddress    ; If result is non-zero, then it did not overflow.
+   238 9BAA EE CD 9B			inc CT_SpeakPointer+1
    239 9BAD			bCTV_SkipHiAddress
    240
-   241 9BAD CE C8 9B			dec CT_SpeakLen
-   242 9BB0 90 03			bcc bCTV_SkipHiLength    ; Underflow means dec high byte.
-   243 9BB2 CE C9 9B			dec CT_SpeakLen+1
-   244 9BB5			bCTV_SkipHiLength
-   245
-   246 9BB5 AD C8 9B			lda CT_SpeakLen          ; Check if length is now 0.
-   247 9BB8 0D C9 9B			ora CT_SpeakLen+1
-   248 9BBB D0 03			bne ExitCheepTalkVBI     ; Not 0, so done.
-   249 					
-   250 9BBD 8D C5 9B			sta CT_Status            ; 0 in status means VBI is done speaking.
-   251
-   252 9BC0			ExitCheepTalkVBI
-   253 9BC0 4C 62 E4			jmp XITVBV              ; Return to OS. 
+   241 9BAD 38				sec                      ; Set carry for subtraction.
+   242 9BAE AD CE 9B			lda CT_SpeakLen          ; dec not as simple as inc.
+   243 9BB1 E9 01			sbc #1
+   244 9BB3 8D CE 9B			sta CT_SpeakLen
+   245 9BB6 B0 03			bcs bCTV_SkipHiLength    ; Did not use carry, so skip dec high byte.
+   246 9BB8 CE CF 9B			dec CT_SpeakLen+1
+   247 9BBB			bCTV_SkipHiLength
+   248
+   249 9BBB AD CE 9B			lda CT_SpeakLen          ; Check if length is now 0.
+   250 9BBE 0D CF 9B			ora CT_SpeakLen+1
+   251 9BC1 D0 03			bne ExitCheepTalkVBI     ; Not 0, so done.
+   252 					
+   253 9BC3 8D CB 9B			sta CT_Status            ; 0 in status means VBI is done speaking.
    254
-   255 				; ==========================================================================
-   256 				; The supporting data.
+   255 9BC6			ExitCheepTalkVBI
+   256 9BC6 4C 62 E4			jmp XITVBV              ; Return to OS. 
    257
-   258 9BC3			CT_PIA      ; Which PIA to use.  0 for Ports 1, 2, or 1 for Atari 400/800 Ports 3, 4
-   259 9BC3 00				.byte 0
-   260 						
-   261 9BC4			CT_InitFlag	
-   262 9BC4 00				.byte 0 ; 0 means uninitialized.  1 means init is done.
-   263
-   264 9BC5			CT_Status
-   265 9BC5 00				.byte 0 ; 1 means BASIC is working.  2 means speaking.  0 means done.
+   258 				; ==========================================================================
+   259 				; The supporting data.
+   260
+   261 9BC9			CT_PIA      ; Which PIA to use.  0 for Ports 1, 2, or 1 for Atari 400/800 Ports 3, 4
+   262 9BC9 00				.byte 0
+   263 						
+   264 9BCA			CT_InitFlag	
+   265 9BCA 00				.byte 0 ; 0 means uninitialized.  1 means init is done.
    266
-   267 9BC6			CT_SpeakPointer
-   268 9BC6 00 00			.word $0000 ; Current pointer to string of phonemes.
-   269 					
-   270 9BC8			CT_SpeakLen
-   271 9BC8 00 00			.word $0000 ; Number of bytes to write.  At 0, speaking is over.
-   272 				                ; Assume the caller uses a sound-off phoneme at the end of the string.
-   273
-   274 					END
+   267 9BCB			CT_Status
+   268 9BCB 00				.byte 0 ; 1 means BASIC is working.  2 means speaking.  0 means done.
+   269
+   270 9BCC			CT_SpeakPointer
+   271 9BCC 00 00			.word $0000 ; Current pointer to string of phonemes.
+   272 					
+   273 9BCE			CT_SpeakLen
+   274 9BCE 00 00			.word $0000 ; Number of bytes to write.  At 0, speaking is over.
+   275 				                ; Assume the caller uses a sound-off phoneme at the end of the string.
+   276
+   277 					END
