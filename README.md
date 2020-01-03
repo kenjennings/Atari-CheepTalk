@@ -1,5 +1,5 @@
 # Atari-CheepTalk
-Simple VBI Driver for Cheep Talk Voice Synthesizer
+Simple VBI Driver for the Cheep Talk Voice Synthesizer based on the SPO256-AL2 speech synthesizer chip.
 
 ---
 
