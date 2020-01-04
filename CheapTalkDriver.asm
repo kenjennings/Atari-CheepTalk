@@ -86,7 +86,7 @@ bCTI_LoopClear
 	sta PORTA,x               ; and now I/O directions are set.
 
 	pla                       ; Get original PACTL value.
-	sta PACTL,x               ; Get current value of port control.
+	sta PACTL,x               ; Set the normal value of port control.
 
 	; Set up the deferred VBI.
 
@@ -102,7 +102,7 @@ ExitCheepTalkInit
 
 
 ; ==========================================================================
-; Speak is called by BASIC by BASIC.  
+; Speak is called by BASIC.  
 ; If speaking is busy it will wait until speaking is done.  
 ; (In another version this could exit instead.  
 ; Or this could be made to override the current string to begin a new one.) 
@@ -178,10 +178,10 @@ ExitCheepTalkSpeech
 CheepTalkVBI
 	lda CT_Status
 	cmp #1                ; Does Status say BASIC is working on the controls?
-	bne ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
+	beq ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
 	
 	cmp #0                ; Check if speaking is running. 
-	bne ServiceCheepTalk  ; Yes, speaking is in progress, so maintain it.
+	bne ServiceCheepTalk  ; Not zero, so yes, speaking is in progress, go maintain it.
 
 	; Speaking is not in progress at this time.
 	; Did BASIC put usable speaking data in the controls ??
