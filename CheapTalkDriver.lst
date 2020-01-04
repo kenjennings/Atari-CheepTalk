@@ -1272,7 +1272,7 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
     86 9B1C 9D 00 D3			sta PORTA,x               ; and now I/O directions are set.
     87
     88 9B1F 68				pla                       ; Get original PACTL value.
-    89 9B20 9D 02 D3			sta PACTL,x               ; Get current value of port control.
+    89 9B20 9D 02 D3			sta PACTL,x               ; Set the normal value of port control.
     90
     91 					; Set up the deferred VBI.
     92
@@ -1288,7 +1288,7 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    102
    103
    104 				; ==========================================================================
-   105 				; Speak is called by BASIC by BASIC.  
+   105 				; Speak is called by BASIC.  
    106 				; If speaking is busy it will wait until speaking is done.  
    107 				; (In another version this could exit instead.  
    108 				; Or this could be made to override the current string to begin a new one.) 
@@ -1364,10 +1364,10 @@ Source: /home/kenjen/eclipse-workspace/CheepTalkDriver/macros.asm
    178 9B65			CheepTalkVBI
    179 9B65 AD CB 9B			lda CT_Status
    180 9B68 C9 01			cmp #1                ; Does Status say BASIC is working on the controls?
-   181 9B6A D0 5A			bne ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
+   181 9B6A F0 5A			beq ExitCheepTalkVBI  ; If BASIC is working on the controls, then do nothing.
    182 					
    183 9B6C C9 00			cmp #0                ; Check if speaking is running. 
-   184 9B6E D0 0D			bne ServiceCheepTalk  ; Yes, speaking is in progress, so maintain it.
+   184 9B6E D0 0D			bne ServiceCheepTalk  ; Not zero, so yes, speaking is in progress, go maintain it.
    185
    186 					; Speaking is not in progress at this time.
    187 					; Did BASIC put usable speaking data in the controls ??
